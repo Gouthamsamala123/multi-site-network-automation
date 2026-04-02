@@ -1,0 +1,350 @@
+{
+  "edge": {
+    "name": "sd-ver-us-mdf-1",
+    "description": "Versah - CHE – Remote (Primary)",
+    "siteName": "Versah",
+    "siteAddress": "CHE – Remote",
+    "modelNumber": "edge640",
+    "serialNumber": "FDO2345G001",
+    "activationKey": "<ACTIVATION_KEY>",
+    "haEnabled": true,
+    "haMode": "active-standby",
+    "softwareVersion": "5.4.0",
+    "profileId": "<SITE_PROFILE_ID>"
+  },
+
+  "deviceSettings": {
+    "lan": {
+      "networks": [
+        {
+          "vlanId": 10,
+          "name": "VER-USER",
+          "space": "User - Primary user data",
+          "cidrPrefix": "10.246.232.0/24",
+          "cidrIp": "10.246.232.0",
+          "netmask": "255.255.255.0",
+          "gateway": "10.246.232.1",
+          "dhcp": {
+            "enabled": true,
+            "dhcpRelay": {
+              "enabled": true,
+              "servers": ["<DHCP_SERVER_IP>"]
+            }
+          },
+          "advertise": true,
+          "ospf": { "enabled": false }
+        },
+        {
+          "vlanId": 18,
+          "name": "VER-WIFI",
+          "space": "WIFI - Wireless clients",
+          "cidrPrefix": "10.246.233.0/25",
+          "cidrIp": "10.246.233.0",
+          "netmask": "255.255.255.128",
+          "gateway": "10.246.233.1",
+          "dhcp": {
+            "enabled": true,
+            "dhcpRelay": {
+              "enabled": true,
+              "servers": ["<DHCP_SERVER_IP>"]
+            }
+          },
+          "advertise": true,
+          "ospf": { "enabled": false }
+        },
+        {
+          "vlanId": 188,
+          "name": "VER-IOT-INTERNAL",
+          "space": "IOT-INTERNAL - IoT devices",
+          "cidrPrefix": "10.246.233.128/27",
+          "cidrIp": "10.246.233.0",
+          "netmask": "255.255.255.224",
+          "gateway": "10.246.233.129",
+          "dhcp": {
+            "enabled": true,
+            "dhcpRelay": {
+              "enabled": true,
+              "servers": ["<DHCP_SERVER_IP>"]
+            }
+          },
+          "advertise": true,
+          "ospf": { "enabled": false }
+        },
+        {
+          "vlanId": 3,
+          "name": "VER-TRANSFER",
+          "space": "Transfer - SD-WAN interconnect",
+          "cidrPrefix": "10.246.233.160/28",
+          "cidrIp": "10.246.233.0",
+          "netmask": "255.255.255.240",
+          "gateway": "10.246.233.161",
+          "dhcp": {
+            "enabled": false
+          },
+          "advertise": true,
+          "ospf": { "enabled": false }
+        },
+        {
+          "vlanId": 9,
+          "name": "VER-AP",
+          "space": "AP - AP management",
+          "cidrPrefix": "10.246.233.192/27",
+          "cidrIp": "10.246.233.0",
+          "netmask": "255.255.255.224",
+          "gateway": "10.246.233.193",
+          "dhcp": {
+            "enabled": false
+          },
+          "advertise": true,
+          "ospf": { "enabled": false }
+        },
+        {
+          "vlanId": 5,
+          "name": "VER-MANAGEMENT",
+          "space": "Management - In-band mgmt",
+          "cidrPrefix": "10.246.233.224/27",
+          "cidrIp": "10.246.233.0",
+          "netmask": "255.255.255.224",
+          "gateway": "10.246.233.225",
+          "dhcp": {
+            "enabled": false
+          },
+          "advertise": true,
+          "ospf": { "enabled": false }
+        },
+      ],
+      "interfaces": [
+        {
+          "name": "GE3",
+          "type": "TRUNK",
+          "enabled": true,
+          "description": "LAN-TO-VER-SWITCH-1",
+          "l2": {
+            "autonegotiation": true,
+            "speed": "1000",
+            "duplex": "FULL"
+          },
+          "subinterfaces": [
+            { "vlanId": 3 },
+            { "vlanId": 5 },
+            { "vlanId": 9 },
+            { "vlanId": 10 },
+            { "vlanId": 18 },
+            { "vlanId": 188 },
+            { "vlanId": 192 },
+            { "vlanId": 193 }
+          ]
+        },
+        {
+          "name": "GE4",
+          "type": "TRUNK",
+          "enabled": true,
+          "description": "LAN-TO-VER-SWITCH-2",
+          "l2": {
+            "autonegotiation": true,
+            "speed": "1000",
+            "duplex": "FULL"
+          },
+          "subinterfaces": [
+            { "vlanId": 3 },
+            { "vlanId": 5 },
+            { "vlanId": 9 },
+            { "vlanId": 10 },
+            { "vlanId": 18 },
+            { "vlanId": 188 },
+            { "vlanId": 192 },
+            { "vlanId": 193 }
+          ]
+        }
+      ]
+    },
+    "wan": {
+      "interfaces": [
+        {
+          "name": "GE1",
+          "type": "WAN",
+          "enabled": true,
+          "description": "WAN-ISP1-PRIMARY",
+          "addressing": {
+            "type": "DHCP",
+          },
+          "overlay": {
+            "wanOverlay": "auto_isp1",
+            "publicIpAddress": "auto"
+          },
+          "natDirect": true,
+          "linkBandwidth": {
+            "upstream": 100,
+            "downstream": 100
+          },
+          "linkType": "broadband"
+        }
+      ]
+    },
+    "ha": {
+      "enabled": true,
+      "interface": "GE2",
+      "peerSerialNumber": "<PEER_SERIAL>"
+    },
+    "dns": {
+      "primaryProvider": {
+        "server1": "<DNS_SERVER_1>",
+        "server2": "<DNS_SERVER_2>"
+      }
+    },
+    "ntp": {
+      "servers": [
+        "<NTP_SERVER_1>",
+        "<NTP_SERVER_2>"
+      ]
+    },
+    "snmp": {
+      "enabled": true,
+      "port": 161,
+      "community": [
+        { "name": "<RO_COMMUNITY>", "accessType": "READ_ONLY" }
+      ],
+      "trapReceivers": [
+        { "host": "<SOLARWINDS_IP>", "port": 162, "community": "<RO_COMMUNITY>" }
+      ]
+    },
+    "syslog": {
+      "enabled": true,
+      "collectors": [
+        { "host": "<SYSLOG_SERVER>", "port": 514, "protocol": "UDP", "facility": "LOCAL7", "severity": "INFORMATIONAL" }
+      ]
+    },
+    "authentication": {
+      "radius": { "enabled": false },
+      "tacacs": {
+        "enabled": true,
+        "servers": [
+          { "host": "<TACACS_SERVER_IP>", "port": 49, "secret": "<TACACS_KEY>" }
+        ]
+      },
+      "localCredentials": {
+        "username": "admin",
+        "password": "<ADMIN_PASSWORD>"
+      }
+    }
+  },
+
+  "businessPolicy": {
+    "rules": [
+      {
+        "name": "User-Direct-Internet",
+        "description": "User VLAN direct internet via Zscaler",
+        "match": {
+          "sourceVlan": 10,
+          "destinationType": "internet"
+        },
+        "action": {
+          "networkService": "directInternetBreakout",
+          "QoS": { "class": "transactional", "bandwidthLimitation": { "uplink": -1, "downlink": -1 } }
+        },
+        "priority": 100
+      },
+      {
+        "name": "WIFI-Direct-Internet",
+        "description": "WIFI VLAN direct internet via Zscaler",
+        "match": {
+          "sourceVlan": 18,
+          "destinationType": "internet"
+        },
+        "action": {
+          "networkService": "directInternetBreakout",
+          "QoS": { "class": "bulk", "bandwidthLimitation": { "uplink": -1, "downlink": -1 } }
+        },
+        "priority": 200
+      },
+      {
+        "name": "Guest-Internet-Only",
+        "description": "Guest VLAN internet only - no internal access",
+        "match": {
+          "sourceVlan": 192,
+          "destinationType": "internet"
+        },
+        "action": {
+          "networkService": "directInternetBreakout",
+          "QoS": { "class": "low", "bandwidthLimitation": { "uplink": 10, "downlink": 25 } }
+        },
+        "priority": 300
+      },
+      {
+        "name": "IoT-Restricted",
+        "description": "IoT VLAN - HTTPS only to cloud, no lateral",
+        "match": {
+          "sourceVlan": 188,
+          "destinationType": "internet",
+          "protocol": "TCP",
+          "destPort": "443"
+        },
+        "action": {
+          "networkService": "gatewayViaHub",
+          "QoS": { "class": "low" }
+        },
+        "priority": 400
+      }
+    ]
+  },
+
+  "firewall": {
+    "stateful": true,
+    "rules": [
+      {
+        "name": "Allow-User-to-Internet",
+        "sourceVlan": [10, 18],
+        "destinationZone": "internet",
+        "application": "any",
+        "action": "allow",
+        "logging": true
+      },
+      {
+        "name": "Block-IoT-Lateral",
+        "sourceVlan": [188],
+        "destinationVlan": [10, 18, 5],
+        "application": "any",
+        "action": "deny",
+        "logging": true
+      },
+      {
+        "name": "Block-Guest-Internal",
+        "sourceVlan": [192],
+        "destinationZone": "private",
+        "application": "any",
+        "action": "deny",
+        "logging": true
+      },
+      {
+        "name": "Allow-Mgmt-Access",
+        "sourceVlan": [5],
+        "destinationVlan": [10, 18, 188, 9],
+        "application": "icmp,ssh,snmp",
+        "action": "allow",
+        "logging": true
+      },
+      {
+        "name": "Default-Deny",
+        "sourceVlan": ["any"],
+        "destinationZone": "any",
+        "application": "any",
+        "action": "deny",
+        "logging": true
+      }
+    ]
+  },
+
+  "_meta": {
+    "generatedBy": "Multi-Site Deployment Framework v2.0",
+    "timestamp": "2026-04-01 13:34:24",
+    "site": "Versah",
+    "device": "sd-ver-us-mdf-1",
+    "applyMethod": "VCO API (POST /edge/edgeProvision) or VCO UI > Configure > Edges",
+    "notes": [
+      "Activation key must be generated in VCO before Edge can connect",
+      "HA peer serial number required for HA pair configuration",
+      "Business policies inherit from the profile unless overridden here",
+      "DNS filter / Zscaler integration configured at the profile level in VCO"
+    ]
+  }
+}

@@ -1,0 +1,185 @@
+!
+! ============================================================
+! SWITCH CONFIGURATION: {{ hostname }}
+! Site: {{ site_name }} | Location: {{ site_location }}
+! Generated: {{ timestamp }}
+! Template: switch_config.j2 v2.0
+! ============================================================
+!
+hostname {{ hostname }}
+!
+service timestamps debug datetime msec localtime show-timezone
+service timestamps log datetime msec localtime show-timezone
+service password-encryption
+!
+no ip domain-lookup
+ip domain-name {{ domain_name | default('envistaco.com') }}
+!
+clock timezone {{ timezone | default('CST') }} {{ tz_offset | default('-6') }}
+clock summer-time {{ timezone_summer | default('CDT') }} recurring
+!
+enable secret 0 {{ enable_secret }}
+username {{ admin_user | default('admin') }} privilege 15 secret 0 {{ admin_password }}
+!
+! --- STACK ---
+{% if stack_priority is defined %}
+switch {{ stack_member | default('1') }} priority {{ stack_priority }}
+stack-mac persistent timer 0
+redundancy
+ mode sso
+{% endif %}
+!
+! --- VTP / STP ---
+vtp mode transparent
+spanning-tree mode rapid-pvst
+spanning-tree extend system-id
+spanning-tree vlan 1-4094 priority {{ stp_priority | default('4096') }}
+errdisable recovery cause all
+errdisable recovery interval 300
+!
+! --- VLAN DATABASE ---
+{% for vlan in vlans %}
+vlan {{ vlan.id }}
+ name {{ site_prefix }}-{{ vlan.name }}
+{% endfor %}
+!
+! --- SVIs ---
+ip routing
+!
+{% for svi in svis %}
+interface Vlan{{ svi.vlan_id }}
+ description {{ svi.description }}
+{% if svi.ip != 'N/A' %}
+ ip address {{ svi.ip }} {{ svi.mask }}
+{% if svi.dhcp_relay is defined and svi.dhcp_relay %}
+ ip helper-address {{ svi.dhcp_relay }}
+{% endif %}
+ no shutdown
+{% else %}
+ no ip address
+ shutdown
+{% endif %}
+!
+{% endfor %}
+!
+! --- UPLINK INTERFACES (SD-WAN) ---
+{% for uplink in uplinks %}
+interface {{ uplink.interface }}
+ description UPLINK-TO-{{ uplink.peer | upper }}-{{ uplink.peer_port }}
+ switchport mode trunk
+ switchport trunk allowed vlan {{ trunk_vlans }}
+ switchport trunk native vlan {{ transfer_vlan | default('3') }}
+ spanning-tree portfast trunk
+ spanning-tree bpduguard enable
+ no shutdown
+!
+{% endfor %}
+!
+! --- AP INTERFACES ---
+{% for ap in ap_interfaces %}
+interface {{ ap.interface }}
+ description AP-{{ ap.ap_name }}
+ switchport mode trunk
+ switchport trunk native vlan {{ ap_vlan | default('9') }}
+ switchport trunk allowed vlan {{ ap_trunk_vlans | default('9,18,192,193') }}
+ spanning-tree portfast trunk
+ spanning-tree bpduguard enable
+ no shutdown
+!
+{% endfor %}
+!
+! --- USER ACCESS PORTS ---
+{% for port_range in user_port_ranges %}
+interface range {{ port_range }}
+ description USER-ACCESS-PORT
+ switchport mode access
+ switchport access vlan {{ user_vlan | default('10') }}
+{% if voice_vlan is defined %}
+ switchport voice vlan {{ voice_vlan }}
+{% endif %}
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ ip dhcp snooping limit rate 15
+ no shutdown
+!
+{% endfor %}
+!
+! --- STATIC ROUTING ---
+{% for route in static_routes %}
+ip route {{ route.destination }} {{ route.mask }} {{ route.next_hop }}
+{% endfor %}
+!
+! --- DHCP SNOOPING ---
+ip dhcp snooping
+ip dhcp snooping vlan {{ dhcp_snoop_vlans | default('10,18,188') }}
+no ip dhcp snooping information option
+ip arp inspection vlan {{ dhcp_snoop_vlans | default('10,18,188') }}
+!
+{% for uplink in uplinks %}
+interface {{ uplink.interface }}
+ ip dhcp snooping trust
+ ip arp inspection trust
+!
+{% endfor %}
+!
+! --- AAA / TACACS+ ---
+aaa new-model
+aaa authentication login default group tacacs+ local
+aaa authentication enable default group tacacs+ enable
+aaa authorization exec default group tacacs+ local
+aaa authorization commands 15 default group tacacs+ local
+aaa accounting exec default start-stop group tacacs+
+aaa accounting commands 15 default start-stop group tacacs+
+!
+tacacs server TACACS-PRIMARY
+ address ipv4 {{ tacacs_server }}
+ key 0 {{ tacacs_key }}
+!
+! --- SNMP ---
+snmp-server community {{ snmp_ro }} RO
+snmp-server community {{ snmp_rw }} RW
+snmp-server location {{ site_prefix }}-{{ site_location | replace(' ', '-') }}-MDF
+snmp-server contact NetworkTeam@envistaco.com
+snmp-server enable traps
+snmp-server host {{ solarwinds_ip }} version 2c {{ snmp_ro }}
+!
+! --- LOGGING & NTP ---
+logging buffered 65536 informational
+logging host {{ syslog_server }}
+logging source-interface Vlan{{ mgmt_vlan | default('5') }}
+!
+{% for ntp in ntp_servers %}
+ntp server {{ ntp }}
+{% endfor %}
+ntp source Vlan{{ mgmt_vlan | default('5') }}
+!
+! --- VTY ACCESS ---
+ip access-list standard VTY-ACCESS
+ permit {{ mgmt_subnet }} {{ mgmt_wildcard }}
+ permit 10.0.0.0 0.255.255.255
+ deny any log
+!
+line console 0
+ logging synchronous
+ exec-timeout 15 0
+!
+line vty 0 15
+ transport input ssh
+ exec-timeout 15 0
+ logging synchronous
+ access-class VTY-ACCESS in
+!
+ip ssh version 2
+crypto key generate rsa modulus 2048
+!
+! --- BANNER ---
+banner motd ^
+***********************************************
+*  AUTHORIZED ACCESS ONLY                     *
+*  {{ hostname | upper | truncate(43, True, '') }}{{ ' ' * (43 - hostname | length) }}*
+*  {{ site_name }} - {{ site_location | truncate(30, True, '') }}{{ ' ' * (30 - site_location | length) }}  *
+*  Envista Holdings - Network Team             *
+***********************************************
+^
+!
+end

@@ -1,0 +1,309 @@
+{# ============================================================
+   VELOCLOUD EDGE PROVISIONING SPEC: {{ hostname }}
+   Site: {{ site_name }} | Location: {{ site_location }}
+   Generated: {{ timestamp }}
+   Template: velocloud_edge.j2 v2.0
+   
+   This template generates the VeloCloud Orchestrator (VCO)
+   provisioning configuration for a VeloCloud Edge device.
+   Apply via VCO UI or VCO API (POST /edge/edgeProvision).
+   ============================================================ #}
+{
+  "edge": {
+    "name": "{{ hostname }}",
+    "description": "{{ site_name }} - {{ site_location }} ({{ ha_role | default('Primary') }})",
+    "siteName": "{{ site_name }}",
+    "siteAddress": "{{ site_location }}",
+    "modelNumber": "{{ edge_model | default('edge640') }}",
+    "serialNumber": "{{ serial_number | default('TBD') }}",
+    "activationKey": "{{ activation_key | default('<ACTIVATION_KEY>') }}",
+    "haEnabled": {{ 'true' if ha_role in ['Primary', 'Secondary'] else 'false' }},
+    "haMode": "{{ ha_mode | default('active-standby') }}",
+    "softwareVersion": "{{ software_version | default('5.4.0') }}",
+    "profileId": "{{ profile_id | default('<SITE_PROFILE_ID>') }}"
+  },
+
+  "deviceSettings": {
+    "lan": {
+      "networks": [
+{% for svi in svis %}
+{% if svi.ip != 'N/A' %}
+        {
+          "vlanId": {{ svi.vlan_id }},
+          "name": "{{ site_prefix }}-{{ svi.vlan_name | upper }}",
+          "space": "{{ svi.description }}",
+          "cidrPrefix": "{{ svi.subnet }}",
+          "cidrIp": "{{ svi.ip.rsplit('.', 1)[0] }}.0",
+          "netmask": "{{ svi.mask }}",
+          "gateway": "{{ svi.ip }}",
+          "dhcp": {
+{% if svi.vlan_id in [10, 18, 188] %}
+            "enabled": true,
+            "dhcpRelay": {
+              "enabled": true,
+              "servers": ["{{ dhcp_relay | default('<DHCP_SERVER_IP>') }}"]
+            }
+{% else %}
+            "enabled": false
+{% endif %}
+          },
+          "advertise": true,
+          "ospf": { "enabled": false }
+        }{{ ',' if not loop.last }}
+{% endif %}
+{% endfor %}
+      ],
+      "interfaces": [
+{% for intf in lan_interfaces %}
+        {
+          "name": "{{ intf.name }}",
+          "type": "{{ intf.type | default('TRUNK') }}",
+          "enabled": true,
+          "description": "{{ intf.description }}",
+{% if intf.type == 'TRUNK' %}
+          "l2": {
+            "autonegotiation": true,
+            "speed": "{{ intf.speed | default('1000') }}",
+            "duplex": "{{ intf.duplex | default('FULL') }}"
+          },
+          "subinterfaces": [
+{% for vlan_id in intf.vlans %}
+            { "vlanId": {{ vlan_id }} }{{ ',' if not loop.last }}
+{% endfor %}
+          ]
+{% elif intf.type == 'ACCESS' %}
+          "l2": {
+            "autonegotiation": true
+          },
+          "vlanId": {{ intf.vlan_id }}
+{% endif %}
+        }{{ ',' if not loop.last }}
+{% endfor %}
+      ]
+    },
+    "wan": {
+      "interfaces": [
+{% if ha_role == 'Primary' or ha_role == 'Standalone' %}
+        {
+          "name": "{{ wan_interface | default('GE1') }}",
+          "type": "WAN",
+          "enabled": true,
+          "description": "WAN-ISP1-{{ isp1_name | default('PRIMARY') }}",
+          "addressing": {
+            "type": "{{ wan_addressing | default('DHCP') }}",
+{% if wan_ip is defined %}
+            "cidrIp": "{{ wan_ip }}",
+            "cidrPrefix": {{ wan_prefix | default('30') }},
+            "gateway": "{{ isp1_gw }}"
+{% endif %}
+          },
+          "overlay": {
+            "wanOverlay": "auto_{{ isp1_name | default('ISP1') | lower }}",
+            "publicIpAddress": "{{ public_ip_1 | default('auto') }}"
+          },
+          "natDirect": true,
+          "linkBandwidth": {
+            "upstream": {{ isp1_bandwidth_up | default('100') }},
+            "downstream": {{ isp1_bandwidth_down | default('100') }}
+          },
+          "linkType": "{{ isp1_type | default('broadband') }}"
+        }
+{% endif %}
+{% if ha_role == 'Secondary' %}
+        {
+          "name": "{{ wan_interface | default('GE1') }}",
+          "type": "WAN",
+          "enabled": true,
+          "description": "WAN-ISP2-{{ isp2_name | default('SECONDARY') }}",
+          "addressing": {
+            "type": "{{ wan_addressing | default('DHCP') }}",
+{% if wan_ip is defined %}
+            "cidrIp": "{{ wan_ip }}",
+            "cidrPrefix": {{ wan_prefix | default('30') }},
+            "gateway": "{{ isp2_gw }}"
+{% endif %}
+          },
+          "overlay": {
+            "wanOverlay": "auto_{{ isp2_name | default('ISP2') | lower }}",
+            "publicIpAddress": "{{ public_ip_2 | default('auto') }}"
+          },
+          "natDirect": true,
+          "linkBandwidth": {
+            "upstream": {{ isp2_bandwidth_up | default('100') }},
+            "downstream": {{ isp2_bandwidth_down | default('100') }}
+          },
+          "linkType": "{{ isp2_type | default('broadband') }}"
+        }
+{% endif %}
+      ]
+    },
+{% if ha_role in ['Primary', 'Secondary'] %}
+    "ha": {
+      "enabled": true,
+      "interface": "{{ ha_interface | default('GE2') }}",
+      "peerSerialNumber": "{{ ha_peer_serial | default('<PEER_SERIAL>') }}"
+    },
+{% endif %}
+    "dns": {
+      "primaryProvider": {
+        "server1": "{{ dns_primary | default('<DNS_SERVER_1>') }}",
+        "server2": "{{ dns_secondary | default('<DNS_SERVER_2>') }}"
+      }
+    },
+    "ntp": {
+      "servers": [
+{% for ntp in ntp_servers %}
+        "{{ ntp }}"{{ ',' if not loop.last }}
+{% endfor %}
+      ]
+    },
+    "snmp": {
+      "enabled": true,
+      "port": 161,
+      "community": [
+        { "name": "{{ snmp_ro | default('<RO_COMMUNITY>') }}", "accessType": "READ_ONLY" }
+      ],
+      "trapReceivers": [
+        { "host": "{{ solarwinds_ip | default('<SOLARWINDS_IP>') }}", "port": 162, "community": "{{ snmp_ro | default('<RO_COMMUNITY>') }}" }
+      ]
+    },
+    "syslog": {
+      "enabled": true,
+      "collectors": [
+        { "host": "{{ syslog_server | default('<SYSLOG_SERVER>') }}", "port": 514, "protocol": "UDP", "facility": "LOCAL7", "severity": "INFORMATIONAL" }
+      ]
+    },
+    "authentication": {
+      "radius": { "enabled": false },
+      "tacacs": {
+        "enabled": true,
+        "servers": [
+          { "host": "{{ tacacs_server | default('<TACACS_SERVER_IP>') }}", "port": 49, "secret": "{{ tacacs_key | default('<TACACS_KEY>') }}" }
+        ]
+      },
+      "localCredentials": {
+        "username": "{{ admin_user | default('admin') }}",
+        "password": "{{ admin_password | default('<ADMIN_PASSWORD>') }}"
+      }
+    }
+  },
+
+  "businessPolicy": {
+    "rules": [
+      {
+        "name": "User-Direct-Internet",
+        "description": "User VLAN direct internet via Zscaler",
+        "match": {
+          "sourceVlan": {{ user_vlan | default(10) }},
+          "destinationType": "internet"
+        },
+        "action": {
+          "networkService": "{{ internet_policy | default('directInternetBreakout') }}",
+          "QoS": { "class": "{{ qos_user | default('transactional') }}", "bandwidthLimitation": { "uplink": -1, "downlink": -1 } }
+        },
+        "priority": 100
+      },
+      {
+        "name": "WIFI-Direct-Internet",
+        "description": "WIFI VLAN direct internet via Zscaler",
+        "match": {
+          "sourceVlan": {{ wifi_vlan | default(18) }},
+          "destinationType": "internet"
+        },
+        "action": {
+          "networkService": "{{ internet_policy | default('directInternetBreakout') }}",
+          "QoS": { "class": "{{ qos_wifi | default('bulk') }}", "bandwidthLimitation": { "uplink": -1, "downlink": -1 } }
+        },
+        "priority": 200
+      },
+      {
+        "name": "Guest-Internet-Only",
+        "description": "Guest VLAN internet only - no internal access",
+        "match": {
+          "sourceVlan": {{ guest_vlan | default(192) }},
+          "destinationType": "internet"
+        },
+        "action": {
+          "networkService": "directInternetBreakout",
+          "QoS": { "class": "low", "bandwidthLimitation": { "uplink": 10, "downlink": 25 } }
+        },
+        "priority": 300
+      },
+      {
+        "name": "IoT-Restricted",
+        "description": "IoT VLAN - HTTPS only to cloud, no lateral",
+        "match": {
+          "sourceVlan": {{ iot_vlan | default(188) }},
+          "destinationType": "internet",
+          "protocol": "TCP",
+          "destPort": "443"
+        },
+        "action": {
+          "networkService": "gatewayViaHub",
+          "QoS": { "class": "low" }
+        },
+        "priority": 400
+      }
+    ]
+  },
+
+  "firewall": {
+    "stateful": true,
+    "rules": [
+      {
+        "name": "Allow-User-to-Internet",
+        "sourceVlan": [{{ user_vlan | default(10) }}, {{ wifi_vlan | default(18) }}],
+        "destinationZone": "internet",
+        "application": "any",
+        "action": "allow",
+        "logging": true
+      },
+      {
+        "name": "Block-IoT-Lateral",
+        "sourceVlan": [{{ iot_vlan | default(188) }}],
+        "destinationVlan": [{{ user_vlan | default(10) }}, {{ wifi_vlan | default(18) }}, 5],
+        "application": "any",
+        "action": "deny",
+        "logging": true
+      },
+      {
+        "name": "Block-Guest-Internal",
+        "sourceVlan": [{{ guest_vlan | default(192) }}],
+        "destinationZone": "private",
+        "application": "any",
+        "action": "deny",
+        "logging": true
+      },
+      {
+        "name": "Allow-Mgmt-Access",
+        "sourceVlan": [5],
+        "destinationVlan": [{{ user_vlan | default(10) }}, {{ wifi_vlan | default(18) }}, {{ iot_vlan | default(188) }}, 9],
+        "application": "icmp,ssh,snmp",
+        "action": "allow",
+        "logging": true
+      },
+      {
+        "name": "Default-Deny",
+        "sourceVlan": ["any"],
+        "destinationZone": "any",
+        "application": "any",
+        "action": "deny",
+        "logging": true
+      }
+    ]
+  },
+
+  "_meta": {
+    "generatedBy": "Multi-Site Deployment Framework v2.0",
+    "timestamp": "{{ timestamp }}",
+    "site": "{{ site_name }}",
+    "device": "{{ hostname }}",
+    "applyMethod": "VCO API (POST /edge/edgeProvision) or VCO UI > Configure > Edges",
+    "notes": [
+      "Activation key must be generated in VCO before Edge can connect",
+      "HA peer serial number required for HA pair configuration",
+      "Business policies inherit from the profile unless overridden here",
+      "DNS filter / Zscaler integration configured at the profile level in VCO"
+    ]
+  }
+}

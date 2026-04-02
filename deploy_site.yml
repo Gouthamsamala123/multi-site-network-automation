@@ -1,0 +1,215 @@
+---
+# =============================================================================
+# MULTI-SITE NETWORK DEPLOYMENT PLAYBOOK
+# Envista Holdings - Standardized Deployment Framework
+# =============================================================================
+#
+# Usage:
+#   ansible-playbook deploy_site.yml -i inventory.yml --extra-vars "site=Versah"
+#   ansible-playbook deploy_site.yml -i inventory.yml --check   # Dry-run mode
+#   ansible-playbook deploy_site.yml -i inventory.yml --limit sw-ver-us-mdf-1
+#
+# Prerequisites:
+#   1. Run generate_configs.py first to create device configs in ./output/
+#   2. Ensure inventory.yml has correct device IPs and credentials
+#   3. SSH keys or TACACS credentials configured for target devices
+
+- name: "Deploy Network Configuration - {{ site | default('ALL') }}"
+  hosts: "{{ target_hosts | default('switches') }}"
+  gather_facts: no
+  connection: network_cli
+
+  vars:
+    config_base_dir: "./output"
+    backup_dir: "./backups/{{ ansible_date_time.date }}"
+    site: "{{ site | default('ALL') }}"
+
+  tasks:
+    # ------------------------------------------------------------------
+    # Phase 1: Pre-Flight Checks
+    # ------------------------------------------------------------------
+    - name: "PRE-FLIGHT | Verify config file exists for {{ inventory_hostname }}"
+      delegate_to: localhost
+      stat:
+        path: "{{ config_base_dir }}/{{ site | replace(' ', '_') }}/{{ inventory_hostname }}.cfg"
+      register: config_file
+      failed_when: not config_file.stat.exists
+
+    - name: "PRE-FLIGHT | Read generated config"
+      delegate_to: localhost
+      set_fact:
+        device_config: "{{ lookup('file', config_base_dir + '/' + site | replace(' ', '_') + '/' + inventory_hostname + '.cfg') }}"
+
+    - name: "PRE-FLIGHT | Ping device to verify reachability"
+      ios_ping:
+        dest: "{{ ansible_host }}"
+        count: 3
+      register: ping_result
+      ignore_errors: yes
+
+    # ------------------------------------------------------------------
+    # Phase 2: Backup Current Config
+    # ------------------------------------------------------------------
+    - name: "BACKUP | Create backup directory"
+      delegate_to: localhost
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+
+    - name: "BACKUP | Save current running-config"
+      ios_command:
+        commands:
+          - show running-config
+      register: running_config
+
+    - name: "BACKUP | Write backup to file"
+      delegate_to: localhost
+      copy:
+        content: "{{ running_config.stdout[0] }}"
+        dest: "{{ backup_dir }}/{{ inventory_hostname }}_backup.cfg"
+
+    # ------------------------------------------------------------------
+    # Phase 3: Apply Configuration
+    # ------------------------------------------------------------------
+    - name: "DEPLOY | Apply configuration to {{ inventory_hostname }}"
+      ios_config:
+        src: "{{ config_base_dir }}/{{ site | replace(' ', '_') }}/{{ inventory_hostname }}.cfg"
+        save_when: changed
+        backup: yes
+        backup_options:
+          dir_path: "{{ backup_dir }}"
+      register: deploy_result
+      notify: save_config
+
+    - name: "DEPLOY | Report changes"
+      debug:
+        msg: "{{ inventory_hostname }}: {{ deploy_result.changed | ternary('CHANGES APPLIED', 'NO CHANGES') }}"
+
+    # ------------------------------------------------------------------
+    # Phase 4: Post-Deployment Validation
+    # ------------------------------------------------------------------
+    - name: "VALIDATE | Check VLANs"
+      ios_command:
+        commands:
+          - show vlan brief
+      register: vlan_check
+
+    - name: "VALIDATE | Check interfaces"
+      ios_command:
+        commands:
+          - show ip interface brief
+      register: intf_check
+
+    - name: "VALIDATE | Check routing table"
+      ios_command:
+        commands:
+          - show ip route summary
+      register: route_check
+
+    - name: "VALIDATE | Check spanning-tree"
+      ios_command:
+        commands:
+          - show spanning-tree summary
+      register: stp_check
+
+    - name: "VALIDATE | Save validation results"
+      delegate_to: localhost
+      copy:
+        content: |
+          ================================================
+          POST-DEPLOYMENT VALIDATION: {{ inventory_hostname }}
+          Date: {{ ansible_date_time.iso8601 }}
+          ================================================
+
+          === VLAN STATUS ===
+          {{ vlan_check.stdout[0] }}
+
+          === INTERFACE STATUS ===
+          {{ intf_check.stdout[0] }}
+
+          === ROUTING SUMMARY ===
+          {{ route_check.stdout[0] }}
+
+          === STP SUMMARY ===
+          {{ stp_check.stdout[0] }}
+        dest: "{{ backup_dir }}/{{ inventory_hostname }}_validation.txt"
+
+  handlers:
+    - name: save_config
+      ios_command:
+        commands:
+          - write memory
+
+
+# =============================================================================
+# SD-WAN DEPLOYMENT (VeloCloud via Orchestrator API)
+# =============================================================================
+- name: "Deploy VeloCloud Edge Configs - {{ site | default('ALL') }}"
+  hosts: "{{ target_hosts | default('sdwan') }}"
+  gather_facts: no
+  connection: local
+
+  vars:
+    vco_host: "{{ vco_url | default('vco.envistaco.com') }}"
+    config_base_dir: "./output"
+    vco_api_token: "{{ lookup('env', 'VCO_API_TOKEN') }}"
+
+  tasks:
+    - name: "VCO | Authenticate to VeloCloud Orchestrator"
+      uri:
+        url: "https://{{ vco_host }}/portal/rest/login/operatorLogin"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          username: "{{ vco_username }}"
+          password: "{{ vco_password }}"
+        validate_certs: no
+      register: vco_auth
+      when: vco_api_token is not defined or vco_api_token == ""
+
+    - name: "VCO | Read edge provisioning spec"
+      set_fact:
+        edge_spec: "{{ lookup('file', config_base_dir + '/' + site | replace(' ', '_') + '/' + inventory_hostname + '.json') | from_json }}"
+
+    - name: "VCO | Provision edge via API"
+      uri:
+        url: "https://{{ vco_host }}/portal/rest/edge/edgeProvision"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          Authorization: "Token {{ vco_api_token }}"
+        body_format: json
+        body:
+          name: "{{ edge_spec.edge.name }}"
+          modelNumber: "{{ edge_spec.edge.modelNumber }}"
+          configurationId: "{{ edge_spec.edge.profileId }}"
+          site:
+            name: "{{ edge_spec.edge.siteName }}"
+            contactName: "Network Team"
+            streetAddress: "{{ edge_spec.edge.siteAddress }}"
+          haEnabled: "{{ edge_spec.edge.haEnabled }}"
+        validate_certs: no
+      register: provision_result
+
+    - name: "VCO | Apply device settings (LAN/WAN/firewall)"
+      uri:
+        url: "https://{{ vco_host }}/portal/rest/edge/updateEdgeAdminPassword"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          Authorization: "Token {{ vco_api_token }}"
+        body_format: json
+        body:
+          id: "{{ provision_result.json.id }}"
+          deviceSettings: "{{ edge_spec.deviceSettings }}"
+        validate_certs: no
+      when: provision_result is defined and provision_result.json.id is defined
+
+    - name: "VCO | Report provisioning result"
+      debug:
+        msg: >
+          {{ inventory_hostname }}: Edge provisioned
+          (ID: {{ provision_result.json.id | default('N/A') }},
+          Activation Key: {{ provision_result.json.activationKey | default('N/A') }})
